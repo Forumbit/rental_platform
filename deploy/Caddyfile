@@ -1,5 +1,8 @@
-# Caddy obtains and renews a Let's Encrypt certificate for $DOMAIN automatically.
-# The DNS A record of the domain must point to this server, ports 80 and 443 open.
+# Caddy obtains and renews Let's Encrypt certificates for every domain below
+# automatically. Their DNS A records must point to this server, ports 80 and
+# 443 open.
+
+# API
 {$DOMAIN} {
 	request_body {
 		max_size 10MB
@@ -11,4 +14,31 @@
 	}
 
 	reverse_proxy api:8080
+}
+
+# Flutter web app: static files uploaded to ./web by the app's deploy script.
+{$WEB_DOMAIN} {
+	root * /srv/web
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+		# Cross-origin isolation lets the Wasm renderer use several threads.
+		# "credentialless" still allows photos from the API and Google Fonts.
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "credentialless"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# File names don't change between releases: always revalidate (cheap 304s).
+		Cache-Control "no-cache"
+	}
+
+	# Client-side routes like /listings/2 are served by index.html.
+	try_files {path} /index.html
+	file_server
+}
+
+www.{$WEB_DOMAIN} {
+	redir https://{$WEB_DOMAIN}{uri} permanent
 }

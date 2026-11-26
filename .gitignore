@@ -15,3 +15,6 @@ config.local.yaml
 .vscode/
 .DS_Store
 !.env.production.example
+
+# Flutter web build deployed next to docker-compose.prod.yml
+/web/

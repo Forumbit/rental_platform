@@ -47,12 +47,15 @@ services:
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:?}
+      WEB_DOMAIN: ${WEB_DOMAIN:?}
     ports:
       - 80:80
       - 443:443
       - 443:443/udp
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Flutter web build, uploaded by the app's tool/deploy_web.sh.
+      - ./web:/srv/web:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
