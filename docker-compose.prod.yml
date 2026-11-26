@@ -1,0 +1,73 @@
+# Production: API + PostgreSQL + Caddy (HTTPS) + daily backups.
+# Photos and database backups live in S3 (Timeweb Cloud), so the server can be
+# deleted and recreated from backups. See "Деплой" in README.md.
+#
+# On the server .env sets COMPOSE_FILE=docker-compose.prod.yml, so plain
+# `docker compose ...` commands use this file.
+name: rental-platform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      POSTGRES_DB: ${DB_NAME:?}
+    # No published ports: only containers of this project can connect.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Applies migrations and exits; the API starts only after it succeeds.
+  migrate:
+    image: rental-platform-api
+    entrypoint: [/app/migrate, -config, /app/config/config.yaml]
+    env_file: .env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    image: rental-platform-api
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?}
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+  backup:
+    build: ./deploy/backup
+    image: rental-platform-backup
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

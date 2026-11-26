@@ -449,6 +449,122 @@ S3-совместимом хранилище. Локально это [SeaweedFS
 Storage, AWS S3 и т. п.). Бесплатные лимиты у сервисов разные — проверьте
 актуальные условия перед использованием.
 
+## Деплой (Timeweb Cloud)
+
+```
+           HTTPS                    облачный сервер (docker compose)
+клиент ───────────▶ Caddy :443 ──▶ api :8080 ──▶ postgres (без внешних портов)
+                    сертификат         │
+                    Let's Encrypt      ├──▶ S3: бакет с фото
+                                       │
+                         backup ───────┴──▶ S3: бакет с бэкапами (pg_dump раз в сутки)
+```
+
+Фото и бэкапы базы хранятся в S3, поэтому сервер одноразовый: его можно удалить
+и за несколько минут поднять заново из последнего бэкапа.
+
+Файлы: `Dockerfile` (образ API), `docker-compose.prod.yml`, `deploy/Caddyfile`,
+`deploy/backup/` (скрипт бэкапов) и `.env.production.example`.
+
+### 1. Хранилище S3
+
+1. В панели Timeweb Cloud создайте **два приватных бакета**: для фото
+   (`S3_BUCKET`) и для бэкапов (`BACKUP_BUCKET`).
+2. Скопируйте ключи доступа (`S3_ACCESS_KEY`, `S3_SECRET_KEY`), а также endpoint
+   и регион со страницы бакета. В `.env.production.example` указаны
+   `s3.twcstorage.ru` и `ru-1` — сверьте их с панелью.
+
+### 2. Сервер и домен
+
+1. Создайте облачный сервер: Ubuntu 24.04, 1 vCPU, **2 ГБ RAM**, от 20 ГБ диска,
+   добавьте свой SSH-ключ. Если есть файрвол, откройте входящие порты 22, 80 и 443.
+2. В DNS домена `your-project.site` добавьте A-запись `api` → IP сервера.
+   Проверка: `dig +short api.your-project.site` возвращает IP сервера.
+   Корень домена остаётся свободным, например для будущего фронтенда.
+3. Проверьте на сервере, что исходящий SMTP не заблокирован:
+   `nc -vz smtp.yandex.ru 465`. Если соединение не устанавливается, попросите
+   поддержку открыть порт — иначе письма подтверждения не уйдут.
+
+### 3. Первый запуск
+
+```sh
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/Forumbit/rental_platform.git
+cd rental_platform
+cp .env.production.example .env
+chmod 600 .env
+nano .env   # заполните все пустые значения
+```
+
+`.env` содержит `COMPOSE_FILE=docker-compose.prod.yml`, поэтому дальше все
+команды — обычные `docker compose ...` из папки проекта.
+
+Если в бакете бэкапов уже есть данные (например, сервер пересоздаётся),
+**сначала восстановите базу**:
+
+```sh
+docker compose up -d --wait postgres
+docker compose run --rm backup restore
+```
+
+Затем запустите всё:
+
+```sh
+docker compose up -d --build
+```
+
+Миграции применяются автоматически перед стартом API. Через минуту Caddy
+получит сертификат, и API будет доступен по `https://api.your-project.site`,
+Swagger — по `https://api.your-project.site/swagger/`.
+
+Первая учётная запись (необязательно): добавьте в `.env` переменные `SEED_USER_*`
+и выполните
+`docker compose run --rm --no-deps --entrypoint /app/seed-user api -config /app/config/config.yaml`.
+
+### Обновление
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+### Бэкапы
+
+Сервис `backup` делает `pg_dump` каждый день в `BACKUP_HOUR_UTC` (по умолчанию
+03:00 по Москве) и хранит последние `BACKUP_KEEP` копий. Каждый бэкап после
+загрузки проверяется: если файл не читается из хранилища, бэкап считается неудачным.
+
+```sh
+docker compose exec backup backup.sh backup             # бэкап прямо сейчас
+docker compose exec backup backup.sh list               # список бэкапов
+docker compose stop api                                 # восстановление:
+docker compose run --rm backup restore                  #   последний бэкап
+docker compose run --rm backup restore <имя>.dump       #   или конкретный
+docker compose start api
+```
+
+Восстановление полностью заменяет текущую базу содержимым бэкапа.
+
+### Когда проект не нужен
+
+Перед выключением или удалением сервера **сделайте свежий бэкап**:
+`docker compose exec backup backup.sh backup`.
+
+- **Выключить сервер.** Данные и IP остаются на месте, после включения всё
+  запустится само. Узнайте в панели, сколько стоит выключенный сервер:
+  у разных тарифов диск и IP могут продолжать тарифицироваться.
+- **Удалить сервер.** Не платите за него вообще: фото и бэкапы остаются в S3.
+  Чтобы вернуть проект, создайте новый сервер, обновите A-запись на новый IP
+  и повторите шаг 3 вместе с восстановлением. Платить придётся только за S3.
+
+### Логи
+
+```sh
+docker compose ps
+docker compose logs -f api
+docker compose logs backup
+```
+
 ## Проверки
 
 ```sh

@@ -1,0 +1,14 @@
+# Caddy obtains and renews a Let's Encrypt certificate for $DOMAIN automatically.
+# The DNS A record of the domain must point to this server, ports 80 and 443 open.
+{$DOMAIN} {
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy api:8080
+}

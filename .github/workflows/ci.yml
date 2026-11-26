@@ -51,3 +51,14 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test -count=1 -race ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -t rental-platform-api .
+      - name: Build backup image
+        run: docker build -t rental-platform-backup deploy/backup
+      - name: Validate production compose file
+        run: cp .env.production.example .env && sed -i 's/=$/=ci-placeholder/' .env && docker compose config --quiet
