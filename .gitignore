@@ -1,0 +1,16 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Local configuration overrides
+config.local.yaml
+
+# Go build artifacts
+/bin/
+/dist/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store

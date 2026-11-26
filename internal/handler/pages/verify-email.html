@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Подтверждение почты</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f4f5f2; color: #202822; font: 15px/1.6 system-ui, sans-serif; }
+    main { width: 100%; max-width: 450px; padding: 36px; border: 1px solid #e3e7df; border-radius: 16px; background: #fff; }
+    .eyebrow { font-size: 11px; color: #778276; letter-spacing: 2px; font-weight: 600; }
+    h1 { font-size: 28px; line-height: 1.2; margin: 18px 0; letter-spacing: -.5px; }
+    p { color: #667066; }
+    a { color: #294331; }
+    label { display: block; margin: 14px 0; color: #667066; }
+    input { display: block; width: 100%; padding: 12px; margin-top: 6px; border: 1px solid #dce2d7; border-radius: 8px; font: inherit; }
+    button { width: 100%; border: 0; border-radius: 8px; padding: 14px; margin-top: 6px; background: #294331; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="eyebrow">ПОДТВЕРЖДЕНИЕ ПОЧТЫ</span>
+    <h1 id="title">Подтвердите почту</h1>
+    <p id="message" role="status" aria-live="polite">Введите код из письма.</p>
+    <form id="form">
+      <label>Почта<input id="email" type="email" autocomplete="email" required></label>
+      <label>Код из письма<input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label>
+      <button id="submit" type="submit">Подтвердить</button>
+    </form>
+    <p id="success" hidden>Теперь можно войти по почте и паролю. <a href="/swagger/">Открыть API</a></p>
+  </main>
+  <script>
+    const title = document.getElementById('title');
+    const message = document.getElementById('message');
+    const form = document.getElementById('form');
+    const submit = document.getElementById('submit');
+    async function verify(body) {
+      submit.disabled = true;
+      document.getElementById('success').hidden = true;
+      title.textContent = 'Подтверждаем почту…';
+      message.textContent = 'Это займёт несколько секунд.';
+      try {
+        const response = await fetch('/auth/verify-email', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), cache: 'no-store'});
+        if (!response.ok) throw new Error('Ссылка или код недействительны, истекли или уже использованы. Запросите новое письмо.');
+        title.textContent = 'Почта подтверждена';
+        message.textContent = 'Регистрация завершена.';
+        form.hidden = true;
+        document.getElementById('success').hidden = false;
+      } catch (error) {
+        title.textContent = 'Не удалось подтвердить';
+        message.textContent = error.message;
+        form.hidden = false;
+      } finally { submit.disabled = false; }
+    }
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      verify({email: document.getElementById('email').value, code: document.getElementById('code').value});
+    });
+    function verifyFragment() {
+      const token = new URLSearchParams(location.hash.slice(1)).get('token');
+      if (token) {
+        // Fragments are never sent in HTTP requests or access logs.
+        history.replaceState(null, '', location.pathname);
+        form.hidden = true;
+        verify({token});
+      }
+    }
+    window.addEventListener('hashchange', verifyFragment);
+    verifyFragment();
+  </script>
+</body>
+</html>

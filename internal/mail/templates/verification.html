@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f5f2;color:#202822;font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Подтвердите почту: код {{.Code}}. Ссылка и код действуют {{.ValidMinutes}} минут.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f2;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border:1px solid #e3e7df;border-radius:16px;">
+        <tr><td style="padding:36px 32px;">
+          <p style="margin:0 0 16px;color:#778276;font-size:11px;font-weight:bold;letter-spacing:2px;">ПОДТВЕРЖДЕНИЕ ПОЧТЫ</p>
+          <h1 style="margin:0 0 20px;font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-0.5px;">Остался один шаг</h1>
+          <p style="margin:0 0 8px;font-size:15px;line-height:1.6;">Здравствуйте, {{.FullName}}.</p>
+          <p style="margin:0 0 24px;color:#667066;font-size:15px;line-height:1.6;">Завершите регистрацию: введите этот код или подтвердите почту по ссылке ниже.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:20px 12px;background:#f3f6ef;border:1px solid #e5eadf;border-radius:10px;">
+            <span style="font-family:'Courier New',monospace;font-size:32px;font-weight:bold;letter-spacing:8px;color:#253c2a;">{{.Code}}</span>
+          </td></tr></table>
+          <p style="margin:20px 0;text-align:center;font-size:12px;color:#9aa197;">или</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="background:#294331;border-radius:9px;">
+            <a href="{{.URL}}" style="display:block;padding:15px 18px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;">Подтвердить почту</a>
+          </td></tr></table>
+          <p style="margin:24px 0 0;color:#7c867a;font-size:12px;line-height:1.7;text-align:center;">Ссылка и код действуют {{.ValidMinutes}} минут.<br>Если вы не регистрировались, просто проигнорируйте письмо.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

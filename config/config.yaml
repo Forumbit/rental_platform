@@ -1,0 +1,43 @@
+http:
+  address: ":8080"
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+log:
+  level: "debug"
+
+db:
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 30m
+  conn_max_idle_time: 5m
+
+auth:
+  access_ttl: 15m
+  refresh_ttl: 168h
+  issuer: "rental-platform"
+  audience: "rental-platform-api"
+
+seed_user:
+  email: "owner@rental.test"
+  full_name: "Rental Owner"
+
+verification:
+  ttl: 15m
+  resend_interval: 60s
+  max_attempts: 5
+  public_base_url: "http://localhost:8080"
+
+smtp:
+  enabled: false
+  host: "smtp.yandex.ru"
+  port: 465
+  tls_mode: "tls"
+  from_name: "Rental Platform"
+  timeout: 5s
+
+# Deletion of expired or revoked refresh sessions and expired email verifications
+cleanup:
+  interval: 1h
+  retention: 24h
