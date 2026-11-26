@@ -73,7 +73,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	httpHandler := handler.New(listingsService, imageService, authService, registration)
+	httpHandler := handler.New(listingsService, imageService, authService, registration).
+		WithCORS(cfg.HTTP.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Address,

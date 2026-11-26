@@ -26,9 +26,12 @@ type HTTPConfig struct {
 	Address           string        `mapstructure:"address"`
 	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`
 	// ReadTimeout covers the whole request body, including image uploads.
-	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout time.Duration `mapstructure:"write_timeout"`
-	IdleTimeout  time.Duration `mapstructure:"idle_timeout"`
+	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+	// CORSAllowedOrigins lists browser origins (e.g. the web app) allowed to
+	// call the API. One "*" wildcard per origin is supported, as in "http://localhost:*".
+	CORSAllowedOrigins []string      `mapstructure:"cors_allowed_origins"`
+	WriteTimeout       time.Duration `mapstructure:"write_timeout"`
+	IdleTimeout        time.Duration `mapstructure:"idle_timeout"`
 }
 
 type LogConfig struct {
@@ -130,6 +133,7 @@ func Load() (*AppConfig, error) {
 
 	bindings := map[string]string{
 		"http.address":                 "HTTP_ADDRESS",
+		"http.cors_allowed_origins":    "CORS_ALLOWED_ORIGINS",
 		"log.level":                    "LOG_LEVEL",
 		"db.url":                       "DATABASE_URL",
 		"auth.access_secret":           "JWT_ACCESS_SECRET",

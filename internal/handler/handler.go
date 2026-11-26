@@ -16,6 +16,7 @@ import (
 	"github.com/forumbit/rental_platform/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 const maxRequestBodySize = 1 << 20 // 1 MiB
@@ -31,6 +32,7 @@ type ListingService interface {
 }
 
 type Handler struct {
+	corsOrigins  []string
 	listings     ListingService
 	images       ImageService
 	auth         AuthService
@@ -41,9 +43,25 @@ func New(listings ListingService, images ImageService, auth AuthService, registr
 	return &Handler{listings: listings, images: images, auth: auth, registration: registration}
 }
 
+// WithCORS allows browser apps from these origins to call the API.
+func (h *Handler) WithCORS(origins []string) *Handler {
+	h.corsOrigins = origins
+	return h
+}
+
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Logger, middleware.Recoverer)
+	if len(h.corsOrigins) > 0 {
+		// Tokens travel in the Authorization header, not cookies, so credentials stay disabled.
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins: h.corsOrigins,
+			AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
+			AllowedHeaders: []string{"Authorization", "Content-Type"},
+			ExposedHeaders: []string{"Location", "Retry-After"},
+			MaxAge:         600,
+		}))
+	}
 	docs.Mount(r)
 
 	r.Route("/auth", func(r chi.Router) {

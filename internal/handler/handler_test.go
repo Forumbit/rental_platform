@@ -206,3 +206,44 @@ func (testRegistrationService) Resend(context.Context, string) error {
 func (testRegistrationService) Verify(context.Context, model.VerifyEmailInput) error {
 	return model.ErrInvalidVerification
 }
+
+func TestCORS(t *testing.T) {
+	images, err := service.NewImageService(failingRepository{}, nil, newMemoryStorage(), imagesTestConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := handler.New(service.NewListingService(failingRepository{}, nil, nil), images, testAuthService{}, testRegistrationService{}).
+		WithCORS([]string{"https://your-project.site", "http://localhost:*"}).Routes()
+
+	for _, tt := range []struct {
+		origin  string
+		allowed bool
+	}{
+		{"https://your-project.site", true},
+		{"http://localhost:5173", true},
+		{"https://evil.example", false},
+	} {
+		preflight := httptest.NewRequest(http.MethodOptions, "/listings/1/images", nil)
+		preflight.Header.Set("Origin", tt.origin)
+		preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		preflight.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, preflight)
+		got := response.Header().Get("Access-Control-Allow-Origin")
+		if tt.allowed && (got != tt.origin || !strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), "authorization")) {
+			t.Fatalf("%s: preflight headers = %v", tt.origin, response.Header())
+		}
+		if !tt.allowed && got != "" {
+			t.Fatalf("%s must not be allowed, got %q", tt.origin, got)
+		}
+
+		// Simple requests, including image downloads, carry the header too.
+		get := httptest.NewRequest(http.MethodGet, "/images/0123456789abcdef0123456789abcdef.png", nil)
+		get.Header.Set("Origin", tt.origin)
+		response = httptest.NewRecorder()
+		router.ServeHTTP(response, get)
+		if got := response.Header().Get("Access-Control-Allow-Origin"); (got == tt.origin) != tt.allowed {
+			t.Fatalf("%s: GET Access-Control-Allow-Origin = %q", tt.origin, got)
+		}
+	}
+}
