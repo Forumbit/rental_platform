@@ -64,6 +64,7 @@ func (h *Handler) Routes() http.Handler {
 	r.With(h.authenticate).Put("/listings/{id}", h.updateListing)
 	r.With(h.authenticate).Delete("/listings/{id}", h.deleteListing)
 	r.With(h.authenticate).Post("/listings/{id}/images", h.uploadImage)
+	r.With(h.authenticate).Put("/listings/{id}/images/order", h.reorderImages)
 	r.With(h.authenticate).Delete("/listings/{id}/images/{imageID}", h.deleteImage)
 	r.Get("/images/{key}", h.serveImage)
 
@@ -288,6 +289,8 @@ func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error)
 		writeError(w, http.StatusUnsupportedMediaType, "image must be JPEG, PNG or WebP")
 	case errors.Is(err, model.ErrInvalidImage):
 		writeError(w, http.StatusBadRequest, "image file is damaged or not a valid image")
+	case errors.Is(err, model.ErrImageOrderMismatch):
+		writeError(w, http.StatusBadRequest, "image_ids must list every image of the listing exactly once")
 	case errors.As(err, &imageLimit):
 		writeError(w, http.StatusConflict, imageLimit.Error())
 	default:

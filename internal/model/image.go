@@ -12,7 +12,14 @@ var (
 	ErrImageTooLarge    = errors.New("image is too large")
 	ErrUnsupportedImage = errors.New("unsupported image format")
 	ErrInvalidImage     = errors.New("invalid image")
+	// ErrImageOrderMismatch means the new order does not list exactly the listing's images.
+	ErrImageOrderMismatch = errors.New("image order must list every image of the listing exactly once")
 )
+
+// ImageOrderInput is the body of PUT /listings/{id}/images/order.
+type ImageOrderInput struct {
+	ImageIDs []int64 `json:"image_ids"`
+}
 
 // ImageLimitError is returned when a listing already has the maximum number of images.
 type ImageLimitError struct {

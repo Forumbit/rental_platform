@@ -26,6 +26,7 @@ type ImageRepository interface {
 	Create(ctx context.Context, ownerID int64, image model.ListingImage, maxPerListing int) (*model.ListingImage, error)
 	ListByListings(ctx context.Context, listingIDs []int64) (map[int64][]model.ListingImage, error)
 	Delete(ctx context.Context, listingID, imageID, ownerID int64) (string, error)
+	Reorder(ctx context.Context, listingID, ownerID int64, imageIDs []int64) ([]model.ListingImage, error)
 	StorageKeys(ctx context.Context, listingID int64) ([]string, error)
 }
 
@@ -130,6 +131,40 @@ func (s *ImageService) Delete(ctx context.Context, userID, listingID, imageID in
 	}
 	s.deleteObjects(ctx, key)
 	return nil
+}
+
+// Reorder sets the order of all images of the owner's listing; the first becomes the cover.
+func (s *ImageService) Reorder(ctx context.Context, userID, listingID int64, imageIDs []int64) ([]model.ListingImage, error) {
+	if err := validateID(listingID); err != nil {
+		return nil, err
+	}
+	if len(imageIDs) == 0 {
+		return nil, &ValidationError{"image_ids", "must contain at least one image id"}
+	}
+	if len(imageIDs) > s.cfg.MaxPerListing {
+		return nil, &ValidationError{"image_ids", fmt.Sprintf("must not contain more than %d ids", s.cfg.MaxPerListing)}
+	}
+	seen := make(map[int64]struct{}, len(imageIDs))
+	for _, id := range imageIDs {
+		if id <= 0 {
+			return nil, &ValidationError{"image_ids", "must contain positive integers"}
+		}
+		if _, ok := seen[id]; ok {
+			return nil, &ValidationError{"image_ids", "must not contain duplicates"}
+		}
+		seen[id] = struct{}{}
+	}
+	if err := requireOwner(ctx, s.listings, listingID, userID); err != nil {
+		return nil, err
+	}
+	images, err := s.images.Reorder(ctx, listingID, userID, imageIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range images {
+		setImageURL(&images[i])
+	}
+	return images, nil
 }
 
 // Open returns the stored file. Keys are random, so knowing the URL is what

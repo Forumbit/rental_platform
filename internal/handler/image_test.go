@@ -89,6 +89,42 @@ func TestImageUploadValidation(t *testing.T) {
 	}
 }
 
+func TestImageReorderValidation(t *testing.T) {
+	router := unitTestRouter(t)
+	for _, tt := range []struct {
+		name   string
+		target string
+		body   string
+		status int
+	}{
+		{"invalid listing id", "/listings/abc/images/order", `{"image_ids":[1]}`, 400},
+		{"malformed JSON", "/listings/1/images/order", `{"image_ids":`, 400},
+		{"unknown field", "/listings/1/images/order", `{"ids":[1]}`, 400},
+		{"missing ids", "/listings/1/images/order", `{}`, 400},
+		{"empty ids", "/listings/1/images/order", `{"image_ids":[]}`, 400},
+		{"string id", "/listings/1/images/order", `{"image_ids":["1"]}`, 400},
+		{"zero id", "/listings/1/images/order", `{"image_ids":[1,0]}`, 400},
+		{"duplicate ids", "/listings/1/images/order", `{"image_ids":[1,2,1]}`, 400},
+		{"more ids than the limit", "/listings/1/images/order", `{"image_ids":[1,2,3,4]}`, 400},
+		{"wrong method", "/listings/1/images/order", `{"image_ids":[1]}`, 405},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			method := http.MethodPut
+			if tt.status == http.StatusMethodNotAllowed {
+				method = http.MethodPost
+			}
+			req := httptest.NewRequest(method, tt.target, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer test-access-token")
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if response.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.status, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestServeImageRejectsInvalidKeys(t *testing.T) {
 	router := unitTestRouter(t)
 	for _, key := range []string{

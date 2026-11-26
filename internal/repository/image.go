@@ -69,6 +69,70 @@ func (r *ImageRepository) Create(ctx context.Context, ownerID int64, image model
 	return created, nil
 }
 
+// Reorder sets positions 0..n-1 in the order of imageIDs, which must contain
+// every image of the owner's listing exactly once. The listing row is locked,
+// the same lock Create takes, so an upload cannot slip in between.
+func (r *ImageRepository) Reorder(ctx context.Context, listingID, ownerID int64, imageIDs []int64) ([]model.ListingImage, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin image reorder: %w", err)
+	}
+	defer tx.Rollback()
+
+	var locked int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM listings WHERE id = $1 AND owner_id = $2 FOR UPDATE`,
+		listingID, ownerID).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, model.ErrListingNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock listing for reorder: %w", err)
+	}
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM listing_images WHERE listing_id = $1`,
+		listingID).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count listing images: %w", err)
+	}
+	// The caller guarantees unique IDs, so matching counts mean equal sets.
+	result, err := tx.ExecContext(ctx, `
+		UPDATE listing_images i SET position = o.ordinality - 1
+		FROM UNNEST($2::bigint[]) WITH ORDINALITY AS o(id, ordinality)
+		WHERE i.id = o.id AND i.listing_id = $1`, listingID, imageIDs)
+	if err != nil {
+		return nil, fmt.Errorf("reorder listing images: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("reorder listing images: %w", err)
+	}
+	if int(updated) != len(imageIDs) || total != len(imageIDs) {
+		return nil, model.ErrImageOrderMismatch
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT `+imageColumns+` FROM listing_images
+		WHERE listing_id = $1 ORDER BY position, id`, listingID)
+	if err != nil {
+		return nil, fmt.Errorf("list reordered images: %w", err)
+	}
+	images := make([]model.ListingImage, 0, len(imageIDs))
+	for rows.Next() {
+		image, err := scanImage(rows)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan listing image: %w", err)
+		}
+		images = append(images, *image)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate listing images: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit image reorder: %w", err)
+	}
+	return images, nil
+}
+
 // ListByListings returns images grouped by listing ID, each group ordered by position.
 func (r *ImageRepository) ListByListings(ctx context.Context, listingIDs []int64) (map[int64][]model.ListingImage, error) {
 	result := make(map[int64][]model.ListingImage, len(listingIDs))

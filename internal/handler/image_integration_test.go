@@ -120,6 +120,77 @@ func TestListingImages(t *testing.T) {
 	request(t, router, "GET", first.URL, "", 404)
 }
 
+func TestReorderImages(t *testing.T) {
+	db := listingsTestDB(t)
+	storage := newMemoryStorage()
+	router, tokens := testRouter(t, db, &captureMailer{}, storage, imagesTestConfig())
+	owner := seedAuthTestUser(t, db)
+	token := createTestSession(t, db, tokens, owner.ID).AccessToken
+	var otherID int64
+	if err := db.QueryRowContext(t.Context(), `
+		INSERT INTO users (email, password_hash, full_name, email_verified_at)
+		VALUES ('other@example.test', 'unused-test-hash', 'Other', NOW()) RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+	otherToken := createTestSession(t, db, tokens, otherID).AccessToken
+	body := `{"title":"Дом","description":"Дом","property_type":"house","price_minor":1,"city":"Истра","status":"published"}`
+	listing := responseBody[model.Listing](t, request(t, router, "POST", "/listings", body, 201, token))
+	another := responseBody[model.Listing](t, request(t, router, "POST", "/listings", body, 201, token))
+	imagesURL := fmt.Sprintf("/listings/%d/images", listing.ID)
+	orderURL := imagesURL + "/order"
+
+	var ids []int64
+	for range 3 {
+		ids = append(ids, responseBody[model.ListingImage](t, upload(t, router, imagesURL, encodePNG(t, 4, 4), 201, token)).ID)
+	}
+	foreignImage := responseBody[model.ListingImage](t, upload(t, router,
+		fmt.Sprintf("/listings/%d/images", another.ID), encodePNG(t, 4, 4), 201, token))
+
+	order := func(ids ...int64) string {
+		return jsonBody(t, model.ImageOrderInput{ImageIDs: ids})
+	}
+	reordered := responseBody[[]model.ListingImage](t, request(t, router, "PUT", orderURL, order(ids[2], ids[0], ids[1]), 200, token))
+	assertImageIDs(t, reordered, ids[2], ids[0], ids[1])
+	for i, image := range reordered {
+		if image.Position != i || !strings.HasPrefix(image.URL, "/images/") {
+			t.Fatalf("image %d: position %d url %q", i, image.Position, image.URL)
+		}
+	}
+	// The new order is visible everywhere; the first image is the cover.
+	public := responseBody[model.Listing](t, request(t, router, "GET", fmt.Sprintf("/listings/%d", listing.ID), "", 200))
+	assertImageIDs(t, public.Images, ids[2], ids[0], ids[1])
+	page := responseBody[model.ListingPage](t, request(t, router, "GET", "/me/listings", "", 200, token))
+	for _, item := range page.Items {
+		if item.ID == listing.ID {
+			assertImageIDs(t, item.Images, ids[2], ids[0], ids[1])
+		}
+	}
+
+	// The order must list exactly the listing's images.
+	request(t, router, "PUT", orderURL, order(ids[2], ids[0]), 400, token)
+	request(t, router, "PUT", orderURL, order(ids[2], ids[0], foreignImage.ID), 400, token)
+	request(t, router, "PUT", orderURL, order(ids[2], ids[0], ids[1]+1000), 400, token)
+	request(t, router, "PUT", fmt.Sprintf("/listings/%d/images/order", another.ID), order(ids[0]), 400, token)
+	// Failed attempts change nothing.
+	public = responseBody[model.Listing](t, request(t, router, "GET", fmt.Sprintf("/listings/%d", listing.ID), "", 200))
+	assertImageIDs(t, public.Images, ids[2], ids[0], ids[1])
+
+	request(t, router, "PUT", orderURL, order(ids[0], ids[1], ids[2]), 403, otherToken)
+	request(t, router, "PUT", "/listings/999999/images/order", order(ids[0]), 404, token)
+
+	// After deletion the order is the remaining images; uploads go to the end.
+	request(t, router, "DELETE", fmt.Sprintf("%s/%d", imagesURL, ids[0]), "", 204, token)
+	request(t, router, "PUT", orderURL, order(ids[2], ids[0], ids[1]), 400, token)
+	reordered = responseBody[[]model.ListingImage](t, request(t, router, "PUT", orderURL, order(ids[1], ids[2]), 200, token))
+	assertImageIDs(t, reordered, ids[1], ids[2])
+	last := responseBody[model.ListingImage](t, upload(t, router, imagesURL, encodePNG(t, 4, 4), 201, token))
+	if last.Position != 2 {
+		t.Fatalf("new image position = %d, want 2", last.Position)
+	}
+	own := responseBody[model.Listing](t, request(t, router, "GET", fmt.Sprintf("/me/listings/%d", listing.ID), "", 200, token))
+	assertImageIDs(t, own.Images, ids[1], ids[2], last.ID)
+}
+
 func TestConcurrentImageUploadsRespectLimit(t *testing.T) {
 	db := listingsTestDB(t)
 	storage := newMemoryStorage()

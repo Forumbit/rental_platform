@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Rental Platform API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     API аренды недвижимости: регистрация, подтверждение почты и JWT-авторизация.
 
@@ -436,6 +436,7 @@ paths:
         и WebP: тип определяется по содержимому файла, а не по расширению.
         Ограничения по умолчанию: до 5 МиБ, до 10 фото на объявление, стороны
         не больше 8000 px. Новое фото добавляется в конец; первое фото — обложка.
+        Порядок меняется через `PUT /listings/{id}/images/order`.
       security:
         - bearerAuth: []
       requestBody:
@@ -486,6 +487,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /listings/{id}/images/order:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID объявления
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      tags: [Images]
+      operationId: reorderListingImages
+      summary: Изменить порядок фото своего объявления
+      description: |
+        Передайте ID всех фото объявления в нужном порядке, каждый ровно один раз.
+        Первое фото становится обложкой. Неполный список, чужие или повторяющиеся
+        ID отклоняются с 400, порядок при этом не меняется.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_ids]
+              properties:
+                image_ids:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: integer
+                    format: int64
+                    minimum: 1
+            example:
+              image_ids: [3, 1, 2]
+      responses:
+        '200':
+          description: Фото в новом порядке
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListingImage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForeignListing'
+        '404':
+          $ref: '#/components/responses/ListingNotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/InternalError'
   /listings/{id}/images/{imageID}:
@@ -987,7 +1047,7 @@ components:
             images:
               type: array
               readOnly: true
-              description: Фото по порядку загрузки, первое — обложка
+              description: Фото по position, первое — обложка
               items:
                 $ref: '#/components/schemas/ListingImage'
             created_at:

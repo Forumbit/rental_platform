@@ -23,6 +23,7 @@ type ImageService interface {
 	MaxSizeBytes() int64
 	Upload(ctx context.Context, userID, listingID int64, data []byte) (*model.ListingImage, error)
 	Delete(ctx context.Context, userID, listingID, imageID int64) error
+	Reorder(ctx context.Context, userID, listingID int64, imageIDs []int64) ([]model.ListingImage, error)
 	Open(ctx context.Context, key string) (*model.StoredObject, error)
 }
 
@@ -112,6 +113,25 @@ func (h *Handler) deleteImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// reorderImages accepts the full list of image IDs in the new order.
+func (h *Handler) reorderImages(w http.ResponseWriter, r *http.Request) {
+	listingID, err := listingID(r)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	var input model.ImageOrderInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	images, err := h.images.Reorder(r.Context(), requestUserID(r), listingID, input.ImageIDs)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, images)
 }
 
 // serveImage streams a file from storage. Keys never change, so the response
