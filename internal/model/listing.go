@@ -40,8 +40,10 @@ type Listing struct {
 	// PublishedAt is set when the listing enters the published status and
 	// cleared when it leaves it.
 	PublishedAt *time.Time `json:"published_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// Images are ordered by position; the first one is the cover.
+	Images    []ListingImage `json:"images"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // ListingFilter selects listings ordered by id DESC. Zero values mean "any".

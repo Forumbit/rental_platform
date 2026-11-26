@@ -18,10 +18,14 @@ type AppConfig struct {
 	Verification VerificationConfig `mapstructure:"verification"`
 	SMTP         SMTPConfig         `mapstructure:"smtp"`
 	Cleanup      CleanupConfig      `mapstructure:"cleanup"`
+	Storage      StorageConfig      `mapstructure:"storage"`
+	Images       ImagesConfig       `mapstructure:"images"`
 }
 
 type HTTPConfig struct {
-	Address      string        `mapstructure:"address"`
+	Address           string        `mapstructure:"address"`
+	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`
+	// ReadTimeout covers the whole request body, including image uploads.
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 	IdleTimeout  time.Duration `mapstructure:"idle_timeout"`
@@ -73,6 +77,23 @@ type SMTPConfig struct {
 	FromEmail string        `mapstructure:"from_email"`
 	FromName  string        `mapstructure:"from_name"`
 	Timeout   time.Duration `mapstructure:"timeout"`
+}
+
+// StorageConfig points to S3-compatible object storage for listing images.
+type StorageConfig struct {
+	Endpoint  string `mapstructure:"endpoint"`
+	Region    string `mapstructure:"region"`
+	Bucket    string `mapstructure:"bucket"`
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
+	UseSSL    bool   `mapstructure:"use_ssl"`
+}
+
+type ImagesConfig struct {
+	MaxSizeBytes  int64 `mapstructure:"max_size_bytes"`
+	MaxPerListing int   `mapstructure:"max_per_listing"`
+	// MaxDimension limits both width and height in pixels.
+	MaxDimension int `mapstructure:"max_dimension"`
 }
 
 // CleanupConfig controls deletion of expired refresh sessions and email verifications.
@@ -136,6 +157,12 @@ func Load() (*AppConfig, error) {
 		"smtp.timeout":                 "SMTP_TIMEOUT",
 		"cleanup.interval":             "CLEANUP_INTERVAL",
 		"cleanup.retention":            "CLEANUP_RETENTION",
+		"storage.endpoint":             "S3_ENDPOINT",
+		"storage.region":               "S3_REGION",
+		"storage.bucket":               "S3_BUCKET",
+		"storage.access_key":           "S3_ACCESS_KEY",
+		"storage.secret_key":           "S3_SECRET_KEY",
+		"storage.use_ssl":              "S3_USE_SSL",
 	}
 	for key, value := range bindings {
 		if err := v.BindEnv(key, value); err != nil {

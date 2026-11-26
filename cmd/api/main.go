@@ -52,20 +52,34 @@ func run() error {
 	log.Println("connected to PostgreSQL")
 
 	// Прослушивание сервера
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	imageStorage, err := storage.OpenS3(ctx, cfg.Storage)
+	cancel()
+	if err != nil {
+		return err
+	}
+	log.Println("connected to image storage")
+
 	users := repository.NewUserRepository(db)
-	listingsService := service.NewListingService(repository.NewListingRepository(db))
+	listings := repository.NewListingRepository(db)
+	images := repository.NewImageRepository(db)
+	listingsService := service.NewListingService(listings, images, imageStorage)
+	imageService, err := service.NewImageService(listings, images, imageStorage, cfg.Images)
+	if err != nil {
+		return err
+	}
 	authService := service.NewAuthService(users, repository.NewSessionRepository(db), tokens)
 	registration, err := service.NewRegistrationService(users, repository.NewVerificationRepository(db), mailer, cfg.Verification)
 	if err != nil {
 		return err
 	}
-	httpHandler := handler.New(listingsService, authService, registration)
+	httpHandler := handler.New(listingsService, imageService, authService, registration)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Address,
 		Handler:           httpHandler.Routes(),
 		ReadTimeout:       cfg.HTTP.ReadTimeout,
-		ReadHeaderTimeout: cfg.HTTP.ReadTimeout,
+		ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
 	}

@@ -25,10 +25,12 @@ type ListingRepository interface {
 
 type ListingService struct {
 	repository ListingRepository
+	images     ImageRepository
+	storage    ImageStorage
 }
 
-func NewListingService(repository ListingRepository) *ListingService {
-	return &ListingService{repository: repository}
+func NewListingService(repository ListingRepository, images ImageRepository, storage ImageStorage) *ListingService {
+	return &ListingService{repository: repository, images: images, storage: storage}
 }
 
 type ValidationError struct {
@@ -57,7 +59,7 @@ func (s *ListingService) GetPublished(ctx context.Context, id int64) (*model.Lis
 	if listing.Status != model.ListingStatusPublished {
 		return nil, model.ErrListingNotFound
 	}
-	return listing, nil
+	return listing, s.attachImages(ctx, listing)
 }
 
 // ListOwn returns the user's listings in any status; status optionally filters them.
@@ -89,7 +91,7 @@ func (s *ListingService) GetOwn(ctx context.Context, userID, id int64) (*model.L
 	if listing.OwnerID != userID {
 		return nil, model.ErrListingNotFound
 	}
-	return listing, nil
+	return listing, s.attachImages(ctx, listing)
 }
 
 func (s *ListingService) Create(ctx context.Context, userID int64, input model.ListingInput) (*model.Listing, error) {
@@ -100,7 +102,12 @@ func (s *ListingService) Create(ctx context.Context, userID int64, input model.L
 	if err != nil {
 		return nil, err
 	}
-	return s.repository.Create(ctx, userID, input)
+	listing, err := s.repository.Create(ctx, userID, input)
+	if err != nil {
+		return nil, err
+	}
+	listing.Images = []model.ListingImage{}
+	return listing, nil
 }
 
 // Update replaces all writable fields; omitted optional fields become NULL or defaults.
@@ -112,20 +119,33 @@ func (s *ListingService) Update(ctx context.Context, userID, id int64, input mod
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireOwner(ctx, id, userID); err != nil {
+	if err := requireOwner(ctx, s.repository, id, userID); err != nil {
 		return nil, err
 	}
-	return s.repository.Update(ctx, id, userID, input)
+	listing, err := s.repository.Update(ctx, id, userID, input)
+	if err != nil {
+		return nil, err
+	}
+	return listing, s.attachImages(ctx, listing)
 }
 
 func (s *ListingService) Delete(ctx context.Context, userID, id int64) error {
 	if err := validateID(id); err != nil {
 		return err
 	}
-	if err := s.requireOwner(ctx, id, userID); err != nil {
+	if err := requireOwner(ctx, s.repository, id, userID); err != nil {
 		return err
 	}
-	return s.repository.Delete(ctx, id, userID)
+	keys, err := s.images.StorageKeys(ctx, id)
+	if err != nil {
+		return err
+	}
+	// Image rows are removed by ON DELETE CASCADE; files are removed afterwards.
+	if err := s.repository.Delete(ctx, id, userID); err != nil {
+		return err
+	}
+	deleteStoredImages(ctx, s.storage, keys)
+	return nil
 }
 
 // list fetches one extra row to learn whether another page exists.
@@ -148,14 +168,44 @@ func (s *ListingService) list(ctx context.Context, filter model.ListingFilter) (
 		next := page.Items[limit-1].ID
 		page.NextCursor = &next
 	}
+	pointers := make([]*model.Listing, len(page.Items))
+	for i := range page.Items {
+		pointers[i] = &page.Items[i]
+	}
+	if err := s.attachImages(ctx, pointers...); err != nil {
+		return nil, err
+	}
 	return page, nil
 }
 
-func (s *ListingService) requireOwner(ctx context.Context, id, userID int64) error {
+// attachImages loads images of all listings with a single query.
+func (s *ListingService) attachImages(ctx context.Context, listings ...*model.Listing) error {
+	ids := make([]int64, len(listings))
+	for i, listing := range listings {
+		ids[i] = listing.ID
+	}
+	images, err := s.images.ListByListings(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, listing := range listings {
+		listing.Images = images[listing.ID]
+		if listing.Images == nil {
+			listing.Images = []model.ListingImage{}
+		}
+		for i := range listing.Images {
+			setImageURL(&listing.Images[i])
+		}
+	}
+	return nil
+}
+
+// requireOwner reports ErrForbidden for another user's listing.
+func requireOwner(ctx context.Context, listings ListingRepository, id, userID int64) error {
 	if userID <= 0 {
 		return model.ErrInvalidToken
 	}
-	listing, err := s.repository.GetByID(ctx, id)
+	listing, err := listings.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}

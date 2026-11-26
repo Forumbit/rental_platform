@@ -32,12 +32,13 @@ type ListingService interface {
 
 type Handler struct {
 	listings     ListingService
+	images       ImageService
 	auth         AuthService
 	registration RegistrationService
 }
 
-func New(listings ListingService, auth AuthService, registration RegistrationService) *Handler {
-	return &Handler{listings: listings, auth: auth, registration: registration}
+func New(listings ListingService, images ImageService, auth AuthService, registration RegistrationService) *Handler {
+	return &Handler{listings: listings, images: images, auth: auth, registration: registration}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -62,6 +63,9 @@ func (h *Handler) Routes() http.Handler {
 	r.With(h.authenticate).Post("/listings", h.createListing)
 	r.With(h.authenticate).Put("/listings/{id}", h.updateListing)
 	r.With(h.authenticate).Delete("/listings/{id}", h.deleteListing)
+	r.With(h.authenticate).Post("/listings/{id}/images", h.uploadImage)
+	r.With(h.authenticate).Delete("/listings/{id}/images/{imageID}", h.deleteImage)
+	r.Get("/images/{key}", h.serveImage)
 
 	// The author's own listings in any status: drafts, published and archived.
 	r.Route("/me/listings", func(r chi.Router) {
@@ -246,6 +250,7 @@ func writeDecodeError(w http.ResponseWriter, err error) {
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
 	var validationError *service.ValidationError
 	var throttled *model.VerificationThrottledError
+	var imageLimit *model.ImageLimitError
 	switch {
 	case errors.As(err, &validationError):
 		writeError(w, http.StatusBadRequest, validationError.Error())
@@ -274,6 +279,17 @@ func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error)
 		writeError(w, http.StatusForbidden, "you can only modify your own listings")
 	case errors.Is(err, model.ErrListingNotFound):
 		writeError(w, http.StatusNotFound, "listing not found")
+	case errors.Is(err, model.ErrImageNotFound):
+		writeError(w, http.StatusNotFound, "image not found")
+	case errors.Is(err, model.ErrImageTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge,
+			"image must not exceed "+strconv.FormatInt(h.images.MaxSizeBytes(), 10)+" bytes")
+	case errors.Is(err, model.ErrUnsupportedImage):
+		writeError(w, http.StatusUnsupportedMediaType, "image must be JPEG, PNG or WebP")
+	case errors.Is(err, model.ErrInvalidImage):
+		writeError(w, http.StatusBadRequest, "image file is damaged or not a valid image")
+	case errors.As(err, &imageLimit):
+		writeError(w, http.StatusConflict, imageLimit.Error())
 	default:
 		log.Printf("%s %s: %v", r.Method, r.URL.Path, err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

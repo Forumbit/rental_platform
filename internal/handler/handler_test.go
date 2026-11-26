@@ -17,7 +17,7 @@ import (
 const validListingJSON = `{"title":"Дом","description":"Дом у леса","property_type":"house","price_minor":10000,"city":"Истра"}`
 
 func TestListingRequestValidation(t *testing.T) {
-	router := handler.New(service.NewListingService(failingRepository{}), testAuthService{}, testRegistrationService{}).Routes()
+	router := unitTestRouter(t)
 	withField := func(field string) string {
 		return strings.TrimSuffix(validListingJSON, "}") + "," + field + "}"
 	}
@@ -94,7 +94,7 @@ func TestListingRequestValidation(t *testing.T) {
 }
 
 func TestInternalErrorResponse(t *testing.T) {
-	router := handler.New(service.NewListingService(failingRepository{}), testAuthService{}, testRegistrationService{}).Routes()
+	router := unitTestRouter(t)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/listings/1", nil))
 	if response.Code != http.StatusInternalServerError {
@@ -103,6 +103,16 @@ func TestInternalErrorResponse(t *testing.T) {
 	if strings.TrimSpace(response.Body.String()) != `{"error":"internal server error"}` {
 		t.Fatalf("unexpected error response: %s", response.Body.String())
 	}
+}
+
+func unitTestRouter(t *testing.T) http.Handler {
+	t.Helper()
+	images, err := service.NewImageService(failingRepository{}, nil, newMemoryStorage(), imagesTestConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listings := service.NewListingService(failingRepository{}, nil, nil)
+	return handler.New(listings, images, testAuthService{}, testRegistrationService{}).Routes()
 }
 
 type failingRepository struct{}
@@ -130,7 +140,7 @@ func (failingRepository) Delete(context.Context, int64, int64) error {
 }
 
 func TestAuthenticationRequired(t *testing.T) {
-	router := handler.New(service.NewListingService(failingRepository{}), testAuthService{}, testRegistrationService{}).Routes()
+	router := unitTestRouter(t)
 	for _, tt := range []struct {
 		method  string
 		path    string
@@ -139,6 +149,8 @@ func TestAuthenticationRequired(t *testing.T) {
 		{"POST", "/listings", nil},
 		{"PUT", "/listings/1", nil},
 		{"DELETE", "/listings/1", nil},
+		{"POST", "/listings/1/images", nil},
+		{"DELETE", "/listings/1/images/1", nil},
 		{"GET", "/me/listings", nil},
 		{"GET", "/me/listings/1", nil},
 		{"GET", "/auth/me", nil},

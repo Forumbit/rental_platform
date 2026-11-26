@@ -1,7 +1,9 @@
 http:
   address: ":8080"
-  read_timeout: 5s
-  write_timeout: 10s
+  read_header_timeout: 5s
+  # Whole request, including image uploads up to images.max_size_bytes
+  read_timeout: 60s
+  write_timeout: 60s
   idle_timeout: 60s
 
 log:
@@ -41,3 +43,15 @@ smtp:
 cleanup:
   interval: 1h
   retention: 24h
+
+# Listing photos in S3-compatible storage. Credentials come from .env
+storage:
+  endpoint: "localhost:8333"
+  region: "us-east-1"
+  bucket: "listing-images"
+  use_ssl: false
+
+images:
+  max_size_bytes: 5242880 # 5 MiB
+  max_per_listing: 10
+  max_dimension: 8000 # pixels, for width and height

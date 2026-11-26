@@ -214,18 +214,28 @@ func authTestRouter(t *testing.T, db *sql.DB) (http.Handler, *auth.TokenManager)
 }
 
 func registrationTestRouter(t *testing.T, db *sql.DB, mailer service.VerificationMailer) (http.Handler, *auth.TokenManager) {
+	return testRouter(t, db, mailer, newMemoryStorage(), imagesTestConfig())
+}
+
+func testRouter(t *testing.T, db *sql.DB, mailer service.VerificationMailer, storage service.ImageStorage, imagesCfg config.ImagesConfig) (http.Handler, *auth.TokenManager) {
 	t.Helper()
 	tokens, err := auth.NewTokenManager(authTestConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
 	authService := service.NewAuthService(repository.NewUserRepository(db), repository.NewSessionRepository(db), tokens)
-	listings := service.NewListingService(repository.NewListingRepository(db))
+	listingsRepo := repository.NewListingRepository(db)
+	imagesRepo := repository.NewImageRepository(db)
+	listings := service.NewListingService(listingsRepo, imagesRepo, storage)
+	images, err := service.NewImageService(listingsRepo, imagesRepo, storage, imagesCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registration, err := service.NewRegistrationService(repository.NewUserRepository(db), repository.NewVerificationRepository(db), mailer, verificationTestConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return handler.New(listings, authService, registration).Routes(), tokens
+	return handler.New(listings, images, authService, registration).Routes(), tokens
 }
 
 func seedAuthTestUser(t *testing.T, db *sql.DB) *model.User {

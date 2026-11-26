@@ -24,8 +24,24 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://rental_user:ci-password@localhost:5432/rental_platform_test?sslmode=disable
+      TEST_S3_ENDPOINT: localhost:8333
+      TEST_S3_ACCESS_KEY: ci-access-key
+      TEST_S3_SECRET_KEY: ci-secret-key
     steps:
       - uses: actions/checkout@v4
+      # Service containers cannot take a command, so SeaweedFS is started manually.
+      - name: Start SeaweedFS
+        run: |
+          docker run -d --name seaweedfs -p 8333:8333 \
+            -e AWS_ACCESS_KEY_ID="$TEST_S3_ACCESS_KEY" -e AWS_SECRET_ACCESS_KEY="$TEST_S3_SECRET_KEY" \
+            chrislusf/seaweedfs:3.97 server -ip.bind=0.0.0.0 -dir=/data -s3 -s3.port=8333 \
+            -master.volumeSizeLimitMB=64 -volume.max=0
+          for i in $(seq 1 90); do
+            curl -fs http://localhost:8333/healthz >/dev/null && exit 0
+            sleep 1
+          done
+          docker logs seaweedfs
+          exit 1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

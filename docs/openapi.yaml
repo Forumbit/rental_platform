@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Rental Platform API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     API аренды недвижимости: регистрация, подтверждение почты и JWT-авторизация.
 
@@ -26,6 +26,8 @@ tags:
     description: Объявления об аренде. Публично видны только опубликованные.
   - name: My listings
     description: Объявления текущего пользователя в любом статусе
+  - name: Images
+    description: Фотографии объявлений
 paths:
   /auth/register:
     post:
@@ -413,6 +415,157 @@ paths:
           $ref: '#/components/responses/ForeignListing'
         '404':
           $ref: '#/components/responses/ListingNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /listings/{id}/images:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID объявления
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    post:
+      tags: [Images]
+      operationId: uploadListingImage
+      summary: Загрузить фото к своему объявлению
+      description: |
+        `multipart/form-data` с одним файлом в поле `image`. Допустимы JPEG, PNG
+        и WebP: тип определяется по содержимому файла, а не по расширению.
+        Ограничения по умолчанию: до 5 МиБ, до 10 фото на объявление, стороны
+        не больше 8000 px. Новое фото добавляется в конец; первое фото — обложка.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Фото загружено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingImage'
+        '400':
+          description: Нет поля image, лишние поля, повреждённый файл или слишком большие размеры в пикселях
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForeignListing'
+        '404':
+          $ref: '#/components/responses/ListingNotFound'
+        '409':
+          description: У объявления уже максимальное количество фото
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Файл больше допустимого размера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Тело не multipart/form-data или файл не JPEG, PNG или WebP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /listings/{id}/images/{imageID}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID объявления
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: imageID
+        in: path
+        required: true
+        description: ID фото
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [Images]
+      operationId: deleteListingImage
+      summary: Удалить фото своего объявления
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Фото удалено вместе с файлом
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForeignListing'
+        '404':
+          description: Объявление или фото не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /images/{key}:
+    get:
+      tags: [Images]
+      operationId: getImage
+      summary: Получить файл фото
+      description: |
+        Используйте `url` из объекта фото. Имя файла случайное и не меняется,
+        поэтому ответ кешируется на год. Ссылки на фото черновиков видит только автор.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{32}\.(jpg|png|webp)$'
+      responses:
+        '200':
+          description: Файл изображения
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Фото не найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/InternalError'
   /me/listings:
@@ -811,7 +964,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/ListingInput'
         - type: object
-          required: [id, owner_id, published_at, created_at, updated_at]
+          required: [id, owner_id, published_at, images, created_at, updated_at]
           properties:
             id:
               type: integer
@@ -831,6 +984,12 @@ components:
                 Устанавливается сервером при переходе в статус published,
                 сохраняется, пока объявление опубликовано, и сбрасывается в null
                 при переводе в draft или archived.
+            images:
+              type: array
+              readOnly: true
+              description: Фото по порядку загрузки, первое — обложка
+              items:
+                $ref: '#/components/schemas/ListingImage'
             created_at:
               type: string
               format: date-time
@@ -852,3 +1011,30 @@ components:
           format: int64
           nullable: true
           description: Передайте в параметр cursor для следующей страницы; null — страниц больше нет.
+    ListingImage:
+      type: object
+      required: [id, url, content_type, size_bytes, width, height, position, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        url:
+          type: string
+          description: Путь к файлу на этом сервере
+          example: /images/5d7c1746e90d9bae59b46b8cbac9b71b.jpg
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          format: int64
+        width:
+          type: integer
+        height:
+          type: integer
+        position:
+          type: integer
+          description: Порядок фото в объявлении, по возрастанию
+        created_at:
+          type: string
+          format: date-time
